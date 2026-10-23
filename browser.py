@@ -31,7 +31,10 @@ def sticky_proxy(proxy, session_id):
     username = proxy.get("username", "")
     # Webshare documents a numeric suffix for sticky sessions. Other gateways
     # and already-sticky credentials are passed through unchanged.
-    if session_id and (host == "webshare.io" or host.endswith(".webshare.io")) and username.endswith("-rotate"):
+    mode = os.getenv("GOOGLE_JOBS_PROXY_SESSION_MODE", "rotating")
+    if mode not in {"rotating", "sticky"}:
+        raise ScraperError("Google Jobs proxy session mode is invalid", 503)
+    if mode == "sticky" and session_id and (host == "webshare.io" or host.endswith(".webshare.io")) and username.endswith("-rotate"):
         proxy = {**proxy, "username": username[: -len("rotate")] + str(session_id)}
     return proxy
 

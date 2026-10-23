@@ -69,6 +69,7 @@ def environment(monkeypatch):
         "NODE_ENV",
         "DATABASE_URL",
         "PULLDATA_RESULTS_DATABASE_URL",
+        "GOOGLE_JOBS_PROXY_SESSION_MODE",
     ]:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("SCRAPER_QUEUE_NAMESPACE", "google-jobs-local-tests")
@@ -370,6 +371,8 @@ def test_cancellation_preserves_partial_rows_and_cannot_reopen_terminal_jobs():
 
 def test_webshare_browser_jobs_use_a_stable_session_without_mutating_other_gateways(monkeypatch):
     monkeypatch.setenv("GOOGLE_JOBS_PROXY_URL", "http://test-user-us-rotate:test-password@p.webshare.io:80")
+    assert proxy_configuration("123456789")["username"] == "test-user-us-rotate"
+    monkeypatch.setenv("GOOGLE_JOBS_PROXY_SESSION_MODE", "sticky")
     first = proxy_configuration("123456789")
     assert first["username"] == "test-user-us-123456789"
     assert proxy_configuration("123456789") == first
