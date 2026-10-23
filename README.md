@@ -2,7 +2,7 @@
 
 Self-hosted Chromium worker supporting authenticated rotating server proxies and compatible residential gateways. Catalog category: **Jobs**. Slug: `google-jobs-scraper`. No search-data API provider or subscription is required.
 
-**Release status: local development, disabled.** Live Google Jobs collection has not passed. A current server-proxy test on 23 October reached Google’s traffic-challenge page and returned no listings. Current network probes reached Google's traffic challenge or timed out through the configured proxy. Browser parser tests use authored deterministic markup; they do not establish compatibility with the current live Google layout. The development pipeline must require real rows before enabling the catalog entry; production publication remains gated.
+**Release status: development worker deployed, catalog disabled.** Live Google Jobs collection has not passed. A current server-proxy test on 23 October reached Google’s traffic-challenge page and returned no listings. Current network probes reached Google's traffic challenge or timed out through the configured proxy. Browser parser tests use authored deterministic markup; they do not establish compatibility with the current live Google layout. The development pipeline must require real rows before enabling the catalog entry; production publication remains gated.
 
 ## Input
 
@@ -111,4 +111,4 @@ No catalog record has been enabled and no development or production deployment h
 
 18 deterministic tests, lint and formatting pass. The Linux container passed PostgreSQL-backed sync/async fixture contracts, pagination, atomic claims, partial-result recovery through a new store instance, stale-owner rejection, terminal-state protection, and expiry. These storage fixtures are not real Google listings. The live proxy-backed probe still returned Google’s traffic-challenge page with zero rows.
 
-The canonical private repository is `futureceptindia/google-jobs-scraper`, with development source on `dev`. Its immutable source passed the remote 18-test suite and Railway build on 23 October. A readiness smoke check exposed a missing bearer token in the deployment request; the worker continues to require authentication, and the request must include its declared `PULLDATA_WORKER_TOKEN`. This infrastructure result does not establish a passing live collection.
+The canonical private repository is `futureceptindia/google-jobs-scraper`, with development source on `dev`. Its immutable source passed the remote 18-test suite and Railway build on 23 October. Readiness requires the trusted platform internal authentication header when no optional worker bearer token is configured. The marketplace validator must forward that platform header only to its hosted workers. An authenticated real asynchronous job reached Google but failed with a traffic challenge and zero listings. This infrastructure result does not establish a passing live collection.
