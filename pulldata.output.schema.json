@@ -1,0 +1,114 @@
+{
+  "columns": [
+    {
+      "key": "job_id",
+      "label": "Job Id",
+      "type": "string"
+    },
+    {
+      "key": "title",
+      "label": "Title",
+      "type": "string"
+    },
+    {
+      "key": "company_name",
+      "label": "Company Name",
+      "type": "string"
+    },
+    {
+      "key": "location",
+      "label": "Location",
+      "type": "string"
+    },
+    {
+      "key": "via",
+      "label": "Via",
+      "type": "string"
+    },
+    {
+      "key": "description",
+      "label": "Description",
+      "type": "string"
+    },
+    {
+      "key": "job_url",
+      "label": "Job Url",
+      "type": "url"
+    },
+    {
+      "key": "apply_url",
+      "label": "Apply Url",
+      "type": "url"
+    },
+    {
+      "key": "apply_options",
+      "label": "Apply Options",
+      "type": "json"
+    },
+    {
+      "key": "posted_at",
+      "label": "Posted Date (Source Text)",
+      "type": "string"
+    },
+    {
+      "key": "salary",
+      "label": "Salary",
+      "type": "string"
+    },
+    {
+      "key": "job_type",
+      "label": "Job Type",
+      "type": "string"
+    },
+    {
+      "key": "work_from_home",
+      "label": "Remote",
+      "type": "boolean"
+    },
+    {
+      "key": "company_logo",
+      "label": "Company Logo",
+      "type": "url"
+    },
+    {
+      "key": "job_highlights",
+      "label": "Job Highlights",
+      "type": "json"
+    },
+    {
+      "key": "extensions",
+      "label": "Extensions",
+      "type": "json"
+    },
+    {
+      "key": "detected_extensions",
+      "label": "Detected Extensions",
+      "type": "json"
+    },
+    {
+      "key": "position",
+      "label": "Position",
+      "type": "integer"
+    },
+    {
+      "key": "search_query",
+      "label": "Search Query",
+      "type": "string"
+    },
+    {
+      "key": "search_location",
+      "label": "Search Location",
+      "type": "string"
+    },
+    {
+      "key": "fetched_at",
+      "label": "Fetched At",
+      "type": "datetime"
+    }
+  ],
+  "exportFormats": [
+    "CSV",
+    "JSON",
+    "XLSX"
+  ]
+}

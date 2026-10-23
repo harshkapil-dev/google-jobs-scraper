@@ -1,0 +1,44 @@
+{
+  "manifestVersion": "1.0",
+  "slug": "google-jobs-scraper",
+  "name": "Google Jobs Scraper",
+  "sourceType": "COMMUNITY_HOSTED",
+  "runtime": "python",
+  "pipeline": {
+    "installCommand": "python -m pip install -r requirements.txt",
+    "testCommand": "python -m pytest -q && python -m ruff check . && python -m ruff format --check .",
+    "dockerfile": "Dockerfile",
+    "configSchema": "pulldata.config.schema.json",
+    "inputSchema": "pulldata.input.json",
+    "outputSchema": "pulldata.output.schema.json",
+    "envSchema": "pulldata.env.schema.json",
+    "testImage": "mcr.microsoft.com/playwright/python:v1.62.0-noble"
+  },
+  "server": {
+    "port": 8080,
+    "healthPath": "/health",
+    "readyPath": "/ready",
+    "startPath": "/scrape",
+    "syncPath": "/scrape-sync",
+    "statusPath": "/job/{job_id}",
+    "resultsPath": "/job/{job_id}/results"
+  },
+  "pricing": {
+    "ratePer1000ResultsUsd": 1
+  },
+  "smokeTest": {
+    "input": {
+      "query": "barista",
+      "location": "Austin, Texas, United States",
+      "country": "us",
+      "max_total_results": 3,
+      "max_pages": 1,
+      "timeout_seconds": 120,
+      "date_posted": "any",
+      "job_type": "any",
+      "remote_only": false
+    },
+    "expectedMinRows": 1,
+    "timeoutSeconds": 150
+  }
+}

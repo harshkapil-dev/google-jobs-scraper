@@ -1,0 +1,244 @@
+{
+  "marketplace": true,
+  "googleJobsTool": "search",
+  "apiEndpoint": "/v1/google-jobs/search/results",
+  "fields": [
+    {
+      "key": "query",
+      "label": "Job keyword",
+      "type": "text",
+      "required": true,
+      "placeholder": "react developer",
+      "helperText": "Job title, employer, or search keywords.",
+      "order": 1
+    },
+    {
+      "key": "location",
+      "label": "Search location",
+      "type": "text",
+      "defaultValue": "Austin, Texas, United States",
+      "helperText": "City, state, and country. Leave blank to use the search country.",
+      "order": 2
+    },
+    {
+      "key": "country",
+      "label": "Country code",
+      "type": "text",
+      "defaultValue": "us",
+      "helperText": "Two-letter Google country code, such as us, gb, or in.",
+      "order": 3
+    },
+    {
+      "key": "date_posted",
+      "label": "Date posted",
+      "type": "select",
+      "defaultValue": "any",
+      "options": [
+        {
+          "label": "Any time",
+          "value": "any"
+        },
+        {
+          "label": "Past 24 hours",
+          "value": "past_24_hours"
+        },
+        {
+          "label": "Past 3 days",
+          "value": "past_3_days"
+        },
+        {
+          "label": "Past week",
+          "value": "past_week"
+        },
+        {
+          "label": "Past month",
+          "value": "past_month"
+        }
+      ],
+      "helperText": "Unknown posting times are excluded when a date filter is selected.",
+      "order": 4
+    },
+    {
+      "key": "job_type",
+      "label": "Job type",
+      "type": "select",
+      "defaultValue": "any",
+      "options": [
+        {
+          "label": "All job types",
+          "value": "any"
+        },
+        {
+          "label": "Full-time",
+          "value": "full_time"
+        },
+        {
+          "label": "Part-time",
+          "value": "part_time"
+        },
+        {
+          "label": "Contract",
+          "value": "contract"
+        },
+        {
+          "label": "Internship",
+          "value": "internship"
+        }
+      ],
+      "order": 5
+    },
+    {
+      "key": "remote_only",
+      "label": "Remote only",
+      "type": "toggle",
+      "defaultValue": false,
+      "helperText": "Return jobs explicitly marked remote or work from home.",
+      "order": 6
+    },
+    {
+      "key": "max_total_results",
+      "label": "Maximum results",
+      "type": "number",
+      "required": true,
+      "defaultValue": 100,
+      "min": 1,
+      "max": 1000,
+      "order": 7
+    },
+    {
+      "key": "max_pages",
+      "label": "Maximum search pages",
+      "type": "number",
+      "defaultValue": 100,
+      "min": 1,
+      "max": 100,
+      "helperText": "Safety cap on browser pagination batches. Search stops when the result limit or source exhaustion is reached.",
+      "group": "advanced",
+      "order": 8
+    },
+    {
+      "key": "timeout_seconds",
+      "label": "Overall timeout (seconds)",
+      "type": "number",
+      "defaultValue": 300,
+      "min": 30,
+      "max": 300,
+      "group": "advanced",
+      "order": 9
+    }
+  ],
+  "resultsSchema": {
+    "columns": [
+      {
+        "key": "job_id",
+        "label": "Job Id",
+        "type": "string"
+      },
+      {
+        "key": "title",
+        "label": "Title",
+        "type": "string"
+      },
+      {
+        "key": "company_name",
+        "label": "Company Name",
+        "type": "string"
+      },
+      {
+        "key": "location",
+        "label": "Location",
+        "type": "string"
+      },
+      {
+        "key": "via",
+        "label": "Via",
+        "type": "string"
+      },
+      {
+        "key": "description",
+        "label": "Description",
+        "type": "string"
+      },
+      {
+        "key": "job_url",
+        "label": "Job Url",
+        "type": "url"
+      },
+      {
+        "key": "apply_url",
+        "label": "Apply Url",
+        "type": "url"
+      },
+      {
+        "key": "apply_options",
+        "label": "Apply Options",
+        "type": "json"
+      },
+      {
+        "key": "posted_at",
+        "label": "Posted Date (Source Text)",
+        "type": "string"
+      },
+      {
+        "key": "salary",
+        "label": "Salary",
+        "type": "string"
+      },
+      {
+        "key": "job_type",
+        "label": "Job Type",
+        "type": "string"
+      },
+      {
+        "key": "work_from_home",
+        "label": "Remote",
+        "type": "boolean"
+      },
+      {
+        "key": "company_logo",
+        "label": "Company Logo",
+        "type": "url"
+      },
+      {
+        "key": "job_highlights",
+        "label": "Job Highlights",
+        "type": "json"
+      },
+      {
+        "key": "extensions",
+        "label": "Extensions",
+        "type": "json"
+      },
+      {
+        "key": "detected_extensions",
+        "label": "Detected Extensions",
+        "type": "json"
+      },
+      {
+        "key": "position",
+        "label": "Position",
+        "type": "integer"
+      },
+      {
+        "key": "search_query",
+        "label": "Search Query",
+        "type": "string"
+      },
+      {
+        "key": "search_location",
+        "label": "Search Location",
+        "type": "string"
+      },
+      {
+        "key": "fetched_at",
+        "label": "Fetched At",
+        "type": "datetime"
+      }
+    ],
+    "exportFormats": [
+      "CSV",
+      "JSON",
+      "XLSX"
+    ]
+  }
+}

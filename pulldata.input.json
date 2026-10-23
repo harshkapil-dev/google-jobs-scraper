@@ -1,0 +1,11 @@
+{
+  "query": "barista",
+  "location": "Austin, Texas, United States",
+  "country": "us",
+  "max_total_results": 3,
+  "max_pages": 1,
+  "timeout_seconds": 120,
+  "date_posted": "any",
+  "job_type": "any",
+  "remote_only": false
+}
