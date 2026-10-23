@@ -1,6 +1,6 @@
 # Google Jobs Scraper for Pulldata
 
-Initial implementation of a self-hosted Chromium worker with residential proxies. Catalog category: **Jobs**. Slug: `google-jobs-scraper`. No search-data API provider or subscription is required.
+Self-hosted Chromium worker supporting authenticated rotating server proxies and compatible residential gateways. Catalog category: **Jobs**. Slug: `google-jobs-scraper`. No search-data API provider or subscription is required.
 
 **Release status: local development, disabled.** Live Google Jobs collection has not passed. A current server-proxy test on 23 October reached Google’s traffic-challenge page and returned no listings. Current network probes reached Google's traffic challenge or timed out through the configured proxy. Browser parser tests use authored deterministic markup; they do not establish compatibility with the current live Google layout. The development pipeline must require real rows before enabling the catalog entry; production publication remains gated.
 
@@ -86,7 +86,7 @@ The worker is based on the live Pulldata Python marketplace starter and contract
 
 - Google's [Indexing API](https://developers.google.com/search/apis/indexing-api/v3/quickstart) notifies Google of publishers' changed job URLs; it does not retrieve job-search listings.
 - Google's [JobPosting documentation](https://developers.google.com/search/docs/appearance/structured-data/job-posting) describes source job fields and the Google Jobs search experience.
-- Webshare documents [rotating and sticky session suffixes](https://www.webshare.io/blog/how-to-use-webshare-proxies-with-clash); browser jobs use a stable sticky suffix when the configured Webshare username ends in `-rotate`.
+- Webshare documents [rotating and sticky session suffixes](https://www.webshare.io/blog/how-to-use-webshare-proxies-with-clash); rotating server credentials remain unchanged; per-job sticky suffixes require an explicit compatible residential gateway configuration.
 - [Playwright's network documentation](https://playwright.dev/python/docs/network#http-proxy) documents authenticated browser proxies and network interception.
 - Provider documentation was researched to compare options, then excluded from the implementation after the owner selected self-hosted browser collection.
 
@@ -110,3 +110,5 @@ No catalog record has been enabled and no development or production deployment h
 ## Verification on 23 October 2026
 
 18 deterministic tests, lint and formatting pass. The Linux container passed PostgreSQL-backed sync/async fixture contracts, pagination, atomic claims, partial-result recovery through a new store instance, stale-owner rejection, terminal-state protection, and expiry. These storage fixtures are not real Google listings. The live proxy-backed probe still returned Google’s traffic-challenge page with zero rows.
+
+The canonical private repository is `futureceptindia/google-jobs-scraper`, with development source on `dev`. Its immutable source passed the remote 18-test suite and Railway build on 23 October. A readiness smoke check exposed a missing bearer token in the deployment request; the worker continues to require authentication, and the request must include its declared `PULLDATA_WORKER_TOKEN`. This infrastructure result does not establish a passing live collection.
