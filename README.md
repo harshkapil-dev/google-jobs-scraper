@@ -78,7 +78,7 @@ docker build -t pulldata-google-jobs:local .
 docker run --rm pulldata-google-jobs:local python -m pytest -q
 ```
 
-Tests mock unstable upstreams and also exercise extraction in real Chromium against an authored DOM fixture. Docker/Redis verification must additionally cover partial-result persistence through a process restart, result pagination, invalid bounds, idempotency, and cleanup. A genuine live run using `pulldata.input.json` remains mandatory before pushing or starting the deployment pipeline.
+Tests mock unstable upstreams and also exercise extraction in real Chromium against an authored DOM fixture. Docker/Redis verification must additionally cover partial-result persistence through a process restart, result pagination, invalid bounds, idempotency, and cleanup. A genuine live run using `pulldata.input.json` remains mandatory before the development catalog can be enabled or a production release can be approved. The development pipeline must fail its smoke gate when no real rows are returned.
 
 The worker is based on the live Pulldata Python marketplace starter and contract 1.0, read on 22 October 2026. There is no production publication authorization in this task.
 
@@ -106,3 +106,7 @@ Before release, obtain a successful small real scrape, verify current live selec
 - Backend type check remains blocked by a pre-existing type error in `src/catalog/facebook-tools.test.ts:33`, outside the Google Jobs changes.
 
 No catalog record has been enabled and no development or production deployment has been claimed as passed.
+
+## Verification on 23 October 2026
+
+18 deterministic tests, lint and formatting pass. The Linux container passed PostgreSQL-backed sync/async fixture contracts, pagination, atomic claims, partial-result recovery through a new store instance, stale-owner rejection, terminal-state protection, and expiry. These storage fixtures are not real Google listings. The live proxy-backed probe still returned Google’s traffic-challenge page with zero rows.
