@@ -407,7 +407,7 @@ def test_browser_waits_for_matching_details_and_keeps_card_identity_during_reord
                   <div class="MQUd2b" data-job-id="two"><h2>Second job</h2><div class="vNEEBe">Second Co</div></div>
                   </div><div role="dialog" data-job-detail data-job-id="one"><h2>First job</h2>
                   <div data-job-company>First Co</div><div data-job-description>First description</div>
-                  <a href="https://first.example/apply">Apply</a></div></main>
+                  <a href="https://first.example/apply">Apply</a><div role="progressbar" hidden></div></div></main>
                   <script>document.querySelector('[data-job-id="two"]').onclick = () => {
                     const p = document.querySelector('[data-job-detail]'); p.dataset.jobId = 'two';
                     p.querySelector('h2').textContent = 'Second job';

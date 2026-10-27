@@ -20,7 +20,7 @@ DETAIL_SNAPSHOT = r"""({expected, excluded}) => {
   const descriptions = Array.from(document.querySelectorAll('.NgUYpe, .HBvzbc, [data-attrid="description"], [data-job-description]')).filter(visible);
   for (const description of descriptions) {
     const panel = description.closest('[role="dialog"], .gws-plugins-horizon-jobs__p-dtl, [data-job-detail]');
-    if (!panel || panel.matches('[aria-busy="true"]') || panel.querySelector('[aria-busy="true"], [role="progressbar"]')) continue;
+    if (!panel || panel.matches('[aria-busy="true"]') || Array.from(panel.querySelectorAll('[aria-busy="true"], [role="progressbar"]')).some(visible)) continue;
     const id = panel.getAttribute('data-job-id') || panel.getAttribute('data-htidocid');
     if (id && expected.job_id && id !== expected.job_id) continue;
     const heading = Array.from(panel.querySelectorAll('h1, h2, [role="heading"], [data-job-title]')).filter(visible);
