@@ -332,7 +332,7 @@ def test_rendered_browser_extraction_from_deterministic_fixture():
             try:
                 page = await browser.new_page()
                 await page.set_content(
-                    """<main><div class="MQUd2b" data-job-id="google-job-1"><h3 class="PUpOsf">React Developer</h3><div class="vNEEBe">Example Co</div><div class="Qk80Jf">Austin, TX</div><div class="oNwCmf">via Example Board</div><span class="LL4CDc">2 days ago</span><span class="LL4CDc">Full-time</span></div><div role="dialog" data-job-detail><div data-job-description>Full description with qualifications and responsibilities.</div><a href="https://example.com/apply">Apply on company site</a><a href="https://jobs.example.com/123">Apply on job board</a><section data-job-highlight><h3>Qualifications</h3><ul><li>React experience</li></ul></section></div></main>"""
+                    """<main><div class="MQUd2b" data-job-id="google-job-1"><h3 class="PUpOsf">React Developer</h3><div class="vNEEBe">Example Co</div><div class="Qk80Jf">Austin, TX</div><div class="oNwCmf">via Example Board</div><span class="LL4CDc">2 days ago</span><span class="LL4CDc">Full-time</span></div><div role="dialog" data-job-detail data-job-id="google-job-1"><h2>React Developer</h2><div data-job-company>Example Co</div><div data-job-description>Full description with qualifications and responsibilities.</div><a href="https://example.com/apply">Apply on company site</a><a href="https://jobs.example.com/123">Apply on job board</a><section data-job-highlight><h3>Qualifications</h3><ul><li>React experience</li></ul></section></div></main>"""
                 )
                 transport = GoogleJobsBrowser()
                 cards = await transport.cards(page)
@@ -394,3 +394,59 @@ def test_configured_postgres_failure_never_falls_back_to_memory(monkeypatch):
         assert error.value.status == 503
         assert "private-test-password" not in str(error.value)
     assert postgres_store.memory == {}
+
+
+def test_browser_waits_for_matching_details_and_keeps_card_identity_during_reordering():
+    async def run():
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=True)
+            try:
+                page = await browser.new_page()
+                await page.set_content("""<main><div id="list">
+                  <div class="MQUd2b" data-job-id="one"><h2>First job</h2><div class="vNEEBe">First Co</div></div>
+                  <div class="MQUd2b" data-job-id="two"><h2>Second job</h2><div class="vNEEBe">Second Co</div></div>
+                  </div><div role="dialog" data-job-detail data-job-id="one"><h2>First job</h2>
+                  <div data-job-company>First Co</div><div data-job-description>First description</div>
+                  <a href="https://first.example/apply">Apply</a></div></main>
+                  <script>document.querySelector('[data-job-id="two"]').onclick = () => {
+                    const p = document.querySelector('[data-job-detail]'); p.dataset.jobId = 'two';
+                    p.querySelector('h2').textContent = 'Second job';
+                    p.querySelector('[data-job-company]').textContent = 'Second Co';
+                    setTimeout(() => {
+                      p.querySelector('[data-job-description]').textContent = 'Second description';
+                      p.querySelector('a').href = 'https://second.example/apply';
+                    }, 900);
+                  };</script>""")
+                transport = GoogleJobsBrowser()
+                cards = await transport.cards(page)
+                assert len(cards) == 2  # The detail panel is never another list card.
+                await page.evaluate("document.querySelector('#list').prepend(document.querySelector('#list').lastElementChild)")
+                raw = await transport.extract(cards[1], page)
+                assert raw["job_id"] == "two" and raw["title"] == "Second job"
+                assert raw["description"] == "Second description"
+                assert raw["apply_options"][0]["link"] == "https://second.example/apply"
+                # A visible, unrelated panel must time out instead of mixing records.
+                transport.detail_timeout_ms = 150
+                with pytest.raises(ScraperError, match="selected job"):
+                    await transport.wait_detail(page, {"job_id": "other", "title": "Other", "company_name": "Other"}, [])
+            finally:
+                await browser.close()
+
+    asyncio.run(run())
+
+
+def test_browser_pagination_waits_for_delayed_new_cards():
+    async def run():
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=True)
+            try:
+                page = await browser.new_page()
+                await page.set_content("""<div class="MQUd2b" data-job-id="one">First</div>
+                  <script>setTimeout(() => {const n=document.createElement('div');n.className='MQUd2b';n.dataset.jobId='two';n.textContent='Second';document.body.append(n)}, 1600)</script>""")
+                transport = GoogleJobsBrowser()
+                await transport.advance(page)
+                assert len(await transport.cards(page)) == 2
+            finally:
+                await browser.close()
+
+    asyncio.run(run())

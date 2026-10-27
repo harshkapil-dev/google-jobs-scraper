@@ -1,6 +1,7 @@
 """Browser transport for public Google Jobs. Credentials come from runtime only."""
 
 import asyncio
+import json
 import os
 import random
 import re
@@ -11,7 +12,31 @@ from playwright.async_api import Error as BrowserError, TimeoutError as BrowserT
 
 from scraper import ScraperError
 
-CARD_SELECTOR = ".MQUd2b, .gws-plugins-horizon-jobs__li-ed, [data-job-id]"
+CARD_SELECTOR = '.MQUd2b, .gws-plugins-horizon-jobs__li-ed, [data-job-id]:not([data-job-detail]):not([role="dialog"])'
+DESCRIPTION_SELECTOR = '.NgUYpe, .HBvzbc, [data-attrid="description"], [data-job-description]'
+DETAIL_SNAPSHOT = r"""({expected, excluded}) => {
+  const visible = node => !!(node.offsetWidth || node.offsetHeight || node.getClientRects().length);
+  const norm = value => (value || '').replace(/\s+/g, ' ').trim().toLowerCase();
+  const descriptions = Array.from(document.querySelectorAll('.NgUYpe, .HBvzbc, [data-attrid="description"], [data-job-description]')).filter(visible);
+  for (const description of descriptions) {
+    const panel = description.closest('[role="dialog"], .gws-plugins-horizon-jobs__p-dtl, [data-job-detail]');
+    if (!panel || panel.matches('[aria-busy="true"]') || panel.querySelector('[aria-busy="true"], [role="progressbar"]')) continue;
+    const id = panel.getAttribute('data-job-id') || panel.getAttribute('data-htidocid');
+    if (id && expected.job_id && id !== expected.job_id) continue;
+    const heading = Array.from(panel.querySelectorAll('h1, h2, [role="heading"], [data-job-title]')).filter(visible);
+    const company = Array.from(panel.querySelectorAll('.vNEEBe, .nJlQNd, .a3jPc, [data-job-company]')).filter(visible);
+    if (!heading.some(node => norm(node.textContent) === norm(expected.title))) continue;
+    if (!company.some(node => norm(node.textContent) === norm(expected.company_name))) continue;
+    const text = (description.innerText || description.textContent || '').trim();
+    if (!text || excluded.includes(text)) continue;
+    return {
+      description: text,
+      apply_options: Array.from(panel.querySelectorAll('a[href]')).filter(a => visible(a) && /apply|application/i.test(a.innerText || a.getAttribute('aria-label') || '')).map(a => ({title: a.innerText || a.getAttribute('aria-label'), link:a.href})),
+      job_highlights: Array.from(panel.querySelectorAll('[data-job-highlight], .YgLbBe')).filter(visible).map(section => ({title: section.querySelector('h3, [role="heading"]')?.textContent?.trim() || null, items: Array.from(section.querySelectorAll('li')).map(li=>li.textContent.trim())}))
+    };
+  }
+  return false;
+}"""
 DATE_LABELS = {
     "past_24_hours": ["Past 24 hours", "Past day", "Yesterday"],
     "past_3_days": ["Past 3 days", "Last 3 days", "Past week"],
@@ -92,6 +117,12 @@ def allowed_request(url):
 
 
 class GoogleJobsBrowser:
+    detail_timeout_ms = 10000
+
+    async def pause(self):
+        # Pace active browser interactions; correctness still depends on DOM identity.
+        await asyncio.sleep(random.uniform(0.15, 0.4))
+
     @asynccontextmanager
     async def session(self, payload, session_id=None):
         async with async_playwright() as playwright:
@@ -135,10 +166,12 @@ class GoogleJobsBrowser:
                 await self.apply_filters(page, payload)
                 yield page
             finally:
-                if context:
-                    await context.close()
-                if browser:
-                    await browser.close()
+                try:
+                    if context:
+                        await context.close()
+                finally:
+                    if browser:
+                        await browser.close()
 
     async def check_page(self, page):
         body = await page.locator("body").inner_text()
@@ -148,6 +181,8 @@ class GoogleJobsBrowser:
         reject = page.get_by_role("button", name=re.compile("Reject all", re.I))
         if await reject.count() and await reject.first.is_visible():
             await reject.first.click()
+            await self.pause()
+            await page.wait_for_load_state("domcontentloaded")
 
     async def select_filter(self, page, group_names, options):
         async def select_option():
@@ -157,6 +192,7 @@ class GoogleJobsBrowser:
                     for item in await choice.all():
                         if await item.is_visible():
                             await item.click()
+                            await self.pause()
                             return True
             return False
 
@@ -167,6 +203,15 @@ class GoogleJobsBrowser:
             button = page.get_by_role("button", name=re.compile(name, re.I))
             if await button.count() and await button.first.is_visible():
                 await button.first.click()
+                await self.pause()
+                try:
+                    await page.wait_for_function(
+                        "labels => Array.from(document.querySelectorAll('[role=option], [role=menuitem], [role=menuitemradio], [role=checkbox], button, a')).some(node => node.getClientRects().length && labels.includes((node.textContent || '').trim()))",
+                        arg=options,
+                        timeout=3000,
+                    )
+                except BrowserTimeout:
+                    continue
                 if await select_option():
                     return
         raise ScraperError("Google Jobs could not apply the requested search filter")
@@ -190,7 +235,14 @@ class GoogleJobsBrowser:
             if re.search(r"no (?:matching )?jobs|did not match any jobs|no results found", body, re.I):
                 return []
             raise ScraperError("Google Jobs did not expose a supported jobs list") from None
-        return await cards.all()
+        stable = []
+        for card in await cards.all():
+            key = await card.evaluate(
+                "node => ['data-job-id','data-htidocid'].map(name => [name,node.getAttribute(name)]).find(item => item[1]) || null"
+            )
+            # nth() changes identity when Google reorders/virtualizes the list.
+            stable.append(page.locator(f":is({CARD_SELECTOR})[{key[0]}={json.dumps(key[1])}]").first if key else card)
+        return stable
 
     async def identifier(self, card):
         raw = await card.evaluate(
@@ -209,7 +261,7 @@ class GoogleJobsBrowser:
           const tags = Array.from(element.querySelectorAll('.LL4CDc, .I2Cbhb, [data-job-extension]')).map(node => node.textContent.trim()).filter(Boolean);
           return {
             job_id: element.getAttribute('data-job-id') || element.getAttribute('data-htidocid') || element.querySelector('[data-entityid]')?.getAttribute('data-entityid'),
-            title: pick(['.PUpOsf', '.BjJfJf', '[role="heading"]']),
+            title: pick(['.PUpOsf', '.BjJfJf', '[role="heading"]', 'h1', 'h2', 'h3']),
             company_name: pick(['.vNEEBe', '.nJlQNd', '.a3jPc']),
             location: pick(['.Qk80Jf', '.FqK3wc', '[data-job-location]']),
             via: pick(['.oNwCmf', '[data-job-via]']),
@@ -219,36 +271,47 @@ class GoogleJobsBrowser:
         }""")
         if not raw.get("title") or not raw.get("company_name"):
             raise ScraperError("Google Jobs layout has changed; job identity could not be verified")
+        # An already visible description can belong to the previous card. Capture
+        # it before clicking, and accept details only from the requested identity.
+        current = await page.evaluate(DETAIL_SNAPSHOT, {"expected": raw, "excluded": []})
+        excluded = [] if current else await page.locator(f":is({DESCRIPTION_SELECTOR}):visible").all_inner_texts()
+        excluded = [value.strip() for value in excluded if value.strip()]
+        await self.pause()
         # Open the Google-hosted detail panel. Never visit an application link.
         await card.click()
-        await page.locator(
-            '.NgUYpe:visible, .HBvzbc:visible, [data-attrid="description"]:visible, [data-job-description]:visible'
-        ).first.wait_for(state="visible", timeout=10000)
+        await self.wait_detail(page, raw, excluded)
         expand = page.get_by_role("button", name=re.compile("Show full description", re.I))
         if await expand.count() and await expand.first.is_visible():
             await expand.first.click()
         more_apply = page.get_by_role("button", name=re.compile("More apply options|Show all apply options|See more apply options", re.I))
         if await more_apply.count() and await more_apply.first.is_visible():
             await more_apply.first.click()
-        raw.update(
-            await page.evaluate("""() => {
-          const visible = node => !!(node.offsetWidth || node.offsetHeight || node.getClientRects().length);
-          const pick = selectors => { for (const selector of selectors) { const node = Array.from(document.querySelectorAll(selector)).find(visible); if (node?.textContent?.trim()) return node.textContent.trim(); } return null; };
-          const descriptions = Array.from(document.querySelectorAll('.NgUYpe, .HBvzbc, [data-attrid="description"], [data-job-description]')).filter(visible);
-          const panel = descriptions[0]?.closest('[role="dialog"], .gws-plugins-horizon-jobs__p-dtl, [data-job-detail]') || document.querySelector('[role="main"]') || document.body;
-          return {
-            description: descriptions.map(node => node.innerText || node.textContent).sort((a,b)=>b.length-a.length)[0] || null,
-            apply_options: Array.from(panel.querySelectorAll('a[href]')).filter(a => visible(a) && /apply|application/i.test(a.innerText || a.getAttribute('aria-label') || '')).map(a => ({title: a.innerText || a.getAttribute('aria-label'), link:a.href})),
-            job_highlights: Array.from(panel.querySelectorAll('[data-job-highlight], .YgLbBe')).filter(visible).map(section => ({title: section.querySelector('h3, [role="heading"]')?.textContent?.trim() || null, items: Array.from(section.querySelectorAll('li')).map(li=>li.textContent.trim())})),
-          };
-        }""")
-        )
+        await self.pause()
+        # Read identity and details in one DOM snapshot after expansions as well.
+        raw.update(await self.wait_detail(page, raw, excluded))
         return raw
+
+    async def wait_detail(self, page, raw, excluded):
+        try:
+            handle = await page.wait_for_function(
+                DETAIL_SNAPSHOT, arg={"expected": raw, "excluded": excluded}, timeout=self.detail_timeout_ms, polling=100
+            )
+            try:
+                return await handle.json_value()
+            finally:
+                await handle.dispose()
+        except BrowserTimeout:
+            await self.check_page(page)
+            raise ScraperError("Google Jobs details did not finish loading for the selected job", 504) from None
 
     async def advance(self, page):
         cards = page.locator(CARD_SELECTOR)
         if not await cards.count():
             return
+        previous = await cards.evaluate_all(
+            "nodes => nodes.map(n => n.getAttribute('data-job-id') || n.getAttribute('data-htidocid') || n.textContent).join('|')"
+        )
+        await self.pause()
         await cards.last.scroll_into_view_if_needed()
         await cards.last.evaluate("""element => {
           let parent = element.parentElement;
@@ -259,6 +322,14 @@ class GoogleJobsBrowser:
           }
           document.scrollingElement.scrollTop = document.scrollingElement.scrollHeight;
         }""")
-        # Bounded wait for Google to append the next group; no background polling.
-        await page.wait_for_timeout(1000)
+        # Wait for appended/replaced cards instead of assuming a fixed one-second load.
+        try:
+            await page.wait_for_function(
+                "({selector, previous}) => Array.from(document.querySelectorAll(selector)).map(n => n.getAttribute('data-job-id') || n.getAttribute('data-htidocid') || n.textContent).join('|') !== previous",
+                arg={"selector": CARD_SELECTOR, "previous": previous},
+                timeout=5000,
+                polling=100,
+            )
+        except BrowserTimeout:
+            pass  # The collector bounds repeated unchanged pages and reports exhaustion.
         await self.check_page(page)

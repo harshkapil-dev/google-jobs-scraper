@@ -4,6 +4,12 @@ Self-hosted Chromium worker supporting authenticated rotating server proxies and
 
 **Release status: development worker deployed, catalog disabled.** Live Google Jobs collection has not passed. A current server-proxy test on 23 October reached Google’s traffic-challenge page and returned no listings. Current network probes reached Google's traffic challenge or timed out through the configured proxy. Browser parser tests use authored deterministic markup; they do not establish compatibility with the current live Google layout. The development pipeline must require real rows before enabling the catalog entry; production publication remains gated.
 
+## Browser synchronization repair — 27 October 2026
+
+Active interactions use small random pauses (150–400 ms), while bounded DOM checks establish readiness. Cards with source IDs retain their identity when the list reorders. Description, application links and highlights are read atomically from a visible detail panel whose job ID (when exposed), title and employer match the selected card. A previous card's description cannot be reused while a new detail panel loads. Pagination waits up to five seconds for changed cards rather than assuming a one-second load. Browser cleanup runs even if context cleanup fails.
+
+Twenty deterministic tests pass on the host and in the Linux container, including delayed description loading, card reordering, pagination taking longer than one second, safe mismatch timeout, and the existing durable job/HTTP contract tests. The bounded live baseline on 27 October still reached Google's traffic challenge through the configured proxy and returned zero rows. These synchronization repairs do not solve a challenge or establish live compatibility. Keep the development catalog disabled until the immutable-source pipeline and real sync/async collection pass with a healthy proxy.
+
 ## Input
 
 | Field | Meaning | Default / bounds |
