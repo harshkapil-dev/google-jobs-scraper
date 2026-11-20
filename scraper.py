@@ -1,8 +1,10 @@
-"""Normalize and collect public Google Jobs with a self-hosted browser."""
+"""Collect public Google Jobs from a browser or the owned SERP page API."""
 
 import asyncio
 import hashlib
 import ipaddress
+import os
+import time
 from datetime import datetime, timezone
 from secrets import randbelow
 from urllib.parse import unquote, urlsplit, urlunsplit
@@ -16,6 +18,39 @@ class ScraperError(Exception):
     def __init__(self, message: str, status: int = 502):
         super().__init__(message)
         self.status = status
+
+
+class TrafficChallengeError(ScraperError):
+    def __init__(self):
+        super().__init__("Google Jobs requires a traffic challenge; collection stopped without retrying or solving", 503)
+
+
+class ChallengeCircuit:
+    """One worker process, one bounded cooldown; recovery is armed by a real request."""
+
+    def __init__(self, cooldown_seconds=300, clock=time.monotonic):
+        self.cooldown_seconds = cooldown_seconds
+        self.clock = clock
+        self.open_until = 0.0
+        self.probing = False
+
+    def check(self):
+        if self.clock() < self.open_until or self.probing:
+            raise ScraperError("Google Jobs source is cooling down after a traffic challenge", 503)
+
+    def acquire(self):
+        self.check()
+        # After cooldown, permit only one request to test source recovery.
+        self.probing = bool(self.open_until)
+
+    def challenged(self):
+        self.open_until = self.clock() + self.cooldown_seconds
+
+    def success(self):
+        self.open_until = 0.0
+
+    def release(self):
+        self.probing = False
 
 
 def text(value):
@@ -126,10 +161,31 @@ def matches_filters(row, payload):
 
 
 class GoogleJobsScraper:
-    def __init__(self, browser=None):
+    def __init__(self, browser=None, source=None, breaker=None):
         self.browser = browser
+        self.source = source
+        self.breaker = breaker or ChallengeCircuit()
+
+    def source_kind(self):
+        kind = "serp" if self.source is not None else os.getenv("GOOGLE_JOBS_SOURCE", "browser")
+        if kind not in {"browser", "serp"}:
+            raise ScraperError("Google Jobs source must be browser or serp", 503)
+        return kind
+
+    def ready(self):
+        if self.source_kind() == "serp":
+            from serp_source import OwnedSerpSource
+
+            (self.source or OwnedSerpSource()).ready()
+        else:
+            from browser import proxy_configuration
+
+            proxy_configuration()
+        self.breaker.check()
 
     async def collect(self, payload: ScrapeInput, state=None, checkpoint=None):
+        if self.source_kind() == "serp":
+            return await self.collect_api(payload, state, checkpoint)
         from browser import GoogleJobsBrowser
 
         transport = self.browser or GoogleJobsBrowser()
@@ -139,9 +195,12 @@ class GoogleJobsScraper:
         fetched_at = state.get("fetched_at") or datetime.now(timezone.utc).isoformat()
         if state.get("exhausted") or len(rows) >= payload.max_total_results:
             return rows
+        if state.get("source_kind") not in {None, "browser"}:
+            raise ScraperError("Google Jobs cannot switch sources while resuming a saved page", 503)
         replay_pages = state.get("page_count", 0)
         session_id = state.get("proxy_session") or str(randbelow(900000000) + 100000000)
         stalls = 0
+        self.breaker.acquire()
         try:
             async with asyncio.timeout(payload.timeout_seconds):
                 async with transport.session(payload, session_id=session_id) as page:
@@ -167,6 +226,7 @@ class GoogleJobsScraper:
                                 "page_count": max(replay_pages, page_number + 1),
                                 "fetched_at": fetched_at,
                                 "exhausted": False,
+                                "source_kind": "browser",
                             }
                             if checkpoint:
                                 await checkpoint(snapshot)
@@ -182,11 +242,16 @@ class GoogleJobsScraper:
                                     "page_count": max(replay_pages, page_number + 1),
                                     "fetched_at": fetched_at,
                                     "exhausted": exhausted,
+                                    "source_kind": "browser",
                                 }
                             )
                         if len(rows) >= payload.max_total_results or exhausted:
                             break
                         await transport.advance(page)
+            self.breaker.success()
+        except TrafficChallengeError:
+            self.breaker.challenged()
+            raise
         except TimeoutError:
             raise ScraperError("Google Jobs search exceeded its overall timeout", 504) from None
         except ScraperError:
@@ -194,4 +259,89 @@ class GoogleJobsScraper:
         except Exception:
             # Browser exceptions often contain authenticated proxy configuration.
             raise ScraperError("Google Jobs browser could not complete this search") from None
+        finally:
+            self.breaker.release()
+        return rows
+
+    async def collect_api(self, payload, state=None, checkpoint=None):
+        from serp_source import OwnedSerpSource
+
+        source = self.source or OwnedSerpSource()
+        state = state or {}
+        rows = list(state.get("results", []))[: payload.max_total_results]
+        if state.get("exhausted") or len(rows) >= payload.max_total_results:
+            return rows
+        if (
+            state.get("source_kind") not in {None, "serp"}
+            or (state.get("results") or state.get("processed_ids") or state.get("page_count"))
+            and state.get("source_kind") is None
+        ):
+            raise ScraperError("Google Jobs cannot switch sources while resuming a saved page", 503)
+        seen = set(state.get("processed_ids", [])) | {row["job_id"] for row in rows}
+        fetched_at = state.get("fetched_at") or datetime.now(timezone.utc).isoformat()
+        page_number = max(0, state.get("page_count", 0) - int(bool(state.get("page_in_progress"))))
+        token = state.get("page_token")
+        token_hashes = set(state.get("page_token_hashes", []))
+        stalls = 0
+        self.breaker.acquire()
+        try:
+            async with asyncio.timeout(payload.timeout_seconds):
+                while page_number < payload.max_pages:
+                    page = await source.search(payload, token)
+                    new_ids = 0
+
+                    async def save(*, in_progress, exhausted, cursor):
+                        if checkpoint:
+                            await checkpoint(
+                                {
+                                    "results": list(rows),
+                                    "processed_ids": sorted(seen),
+                                    "fetched_at": fetched_at,
+                                    "page_count": page_number + 1,
+                                    "page_in_progress": in_progress,
+                                    "page_token": cursor,
+                                    "page_token_hashes": sorted(token_hashes),
+                                    "source_kind": "serp",
+                                    "exhausted": exhausted,
+                                }
+                            )
+
+                    for raw in page.jobs:
+                        row = normalize_job(raw, payload, len(rows) + 1, fetched_at)
+                        if row["job_id"] in seen:
+                            continue
+                        seen.add(row["job_id"])
+                        new_ids += 1
+                        if matches_filters(row, payload):
+                            rows.append(row)
+                        await save(in_progress=True, exhausted=False, cursor=token)
+                        if len(rows) >= payload.max_total_results:
+                            break
+                    stalls = stalls + 1 if not new_ids else 0
+                    next_token = page.next_page_token
+                    digest = hashlib.sha256(next_token.encode()).hexdigest() if next_token else None
+                    exhausted = not page.jobs or next_token is None or next_token == token or digest in token_hashes or stalls >= 3
+                    limited = len(rows) >= payload.max_total_results
+                    if digest:
+                        token_hashes.add(digest)
+                    await save(in_progress=limited, exhausted=exhausted and not limited, cursor=token if limited else next_token)
+                    if limited or exhausted:
+                        break
+                    token = next_token
+                    page_number += 1
+            self.breaker.success()
+        except TrafficChallengeError:
+            self.breaker.challenged()
+            raise
+        except TimeoutError:
+            raise ScraperError("Google Jobs search exceeded its overall timeout", 504) from None
+        except ScraperError:
+            raise
+        except Exception:
+            raise ScraperError("Owned SERP could not complete this Google Jobs search") from None
+        finally:
+            try:
+                await source.close()
+            finally:
+                self.breaker.release()
         return rows

@@ -15,7 +15,7 @@ import browser as browser_module
 from browser import GoogleJobsBrowser, allowed_request, proxy_configuration
 from job_store import JobStore
 from models import ScrapeInput
-from scraper import GoogleJobsScraper, ScraperError, matches_filters, normalize_job, public_url
+from scraper import ChallengeCircuit, GoogleJobsScraper, ScraperError, TrafficChallengeError, matches_filters, normalize_job, public_url
 
 
 def job(index=1, **overrides):
@@ -70,6 +70,8 @@ def environment(monkeypatch):
         "DATABASE_URL",
         "PULLDATA_RESULTS_DATABASE_URL",
         "GOOGLE_JOBS_PROXY_SESSION_MODE",
+        "GOOGLE_JOBS_SOURCE",
+        "GOOGLE_JOBS_SERP_BASE_URL",
     ]:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("SCRAPER_QUEUE_NAMESPACE", "google-jobs-local-tests")
@@ -253,6 +255,7 @@ def test_browser_navigation_retry_policy_and_cleanup(monkeypatch, status, attemp
     manager = MagicMock(__aenter__=AsyncMock(return_value=playwright), __aexit__=AsyncMock(return_value=False))
     monkeypatch.setattr(browser_module, "async_playwright", lambda: manager)
     monkeypatch.setattr(browser_module.asyncio, "sleep", AsyncMock())
+    monkeypatch.setattr(GoogleJobsBrowser, "reject_challenge", AsyncMock())
 
     async def run():
         with pytest.raises(ScraperError):
@@ -271,6 +274,72 @@ def test_challenges_fail_safely_without_retrying_or_solving():
     page.locator.return_value.inner_text = AsyncMock(return_value="Our systems have detected unusual traffic")
     with pytest.raises(ScraperError, match="traffic challenge"):
         asyncio.run(GoogleJobsBrowser().check_page(page))
+
+
+@pytest.mark.parametrize("status", [200, 429, 503])
+def test_navigation_challenge_is_never_retried_even_on_transient_http_status(monkeypatch, status):
+    page = MagicMock(url="https://www.google.com/sorry/index")
+    page.goto = AsyncMock(return_value=MagicMock(status=status))
+    context = MagicMock(new_page=AsyncMock(return_value=page), route=AsyncMock(), close=AsyncMock())
+    browser = MagicMock(new_context=AsyncMock(return_value=context), close=AsyncMock())
+    playwright = MagicMock()
+    playwright.chromium.launch = AsyncMock(return_value=browser)
+    manager = MagicMock(__aenter__=AsyncMock(return_value=playwright), __aexit__=AsyncMock(return_value=False))
+    monkeypatch.setattr(browser_module, "async_playwright", lambda: manager)
+    sleep = AsyncMock()
+    monkeypatch.setattr(browser_module.asyncio, "sleep", sleep)
+
+    async def run():
+        with pytest.raises(TrafficChallengeError):
+            async with GoogleJobsBrowser().session(ScrapeInput(query="engineer")):
+                pytest.fail("A challenge must never yield a usable browser")
+        assert page.goto.await_count == 1
+        sleep.assert_not_awaited()
+        context.close.assert_awaited_once()
+        browser.close.assert_awaited_once()
+
+    asyncio.run(run())
+
+
+def test_circuit_blocks_new_jobs_and_allows_one_request_armed_recovery_probe():
+    now = [10.0]
+    breaker = ChallengeCircuit(cooldown_seconds=300, clock=lambda: now[0])
+    transport = FakeBrowser()
+    calls = [0]
+
+    async def cards(_page):
+        calls[0] += 1
+        raise TrafficChallengeError()
+
+    transport.cards = cards
+    scraper = GoogleJobsScraper(transport, breaker=breaker)
+
+    async def run():
+        with pytest.raises(TrafficChallengeError):
+            await scraper.collect(ScrapeInput(query="engineer"))
+        with pytest.raises(ScraperError, match="cooling down"):
+            await scraper.collect(ScrapeInput(query="another search"))
+        assert calls[0] == 1 and transport.closed == 1
+        now[0] = 310.0
+        breaker.acquire()
+        with pytest.raises(ScraperError, match="cooling down"):
+            breaker.acquire()
+        breaker.success()
+        breaker.release()
+        breaker.acquire()
+        breaker.release()
+
+    asyncio.run(run())
+
+
+def test_open_circuit_keeps_health_cheap_and_rejects_new_jobs_before_storage(monkeypatch):
+    worker.collector.breaker.challenged()
+    before = len(worker.store.memory)
+    with TestClient(worker.app) as client:
+        assert client.get("/health").json() == {"ok": True}
+        assert client.get("/ready").status_code == 503
+        assert client.post("/scrape", json={"query": "engineer"}).status_code == 503
+        assert len(worker.store.memory) == before
 
 
 def test_proxy_and_network_target_validation(monkeypatch):

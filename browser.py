@@ -10,7 +10,7 @@ from urllib.parse import unquote, urlencode, urlsplit
 
 from playwright.async_api import Error as BrowserError, TimeoutError as BrowserTimeout, async_playwright
 
-from scraper import ScraperError
+from scraper import ScraperError, TrafficChallengeError
 
 CARD_SELECTOR = '.MQUd2b, .gws-plugins-horizon-jobs__li-ed, [data-job-id]:not([data-job-detail]):not([role="dialog"])'
 DESCRIPTION_SELECTOR = '.NgUYpe, .HBvzbc, [data-attrid="description"], [data-job-description]'
@@ -154,6 +154,9 @@ class GoogleJobsBrowser:
                         if not transient or attempt == 2:
                             raise ScraperError("Google Jobs proxy or browser connection failed", 503) from None
                     else:
+                        # A 429/5xx challenge is not a transient navigation failure.
+                        # Detect it before the status-based retry branch.
+                        await self.reject_challenge(page)
                         if response and response.status in {429, 500, 502, 503, 504}:
                             if attempt == 2:
                                 raise ScraperError("Google Jobs is temporarily unavailable", 503)
@@ -173,10 +176,15 @@ class GoogleJobsBrowser:
                     if browser:
                         await browser.close()
 
+    async def reject_challenge(self, page):
+        if "/sorry/" in page.url:
+            raise TrafficChallengeError()
+        body = await page.locator("body").inner_text(timeout=3000)
+        if re.search(r"unusual traffic|verify you are human|not a robot", body, re.I):
+            raise TrafficChallengeError()
+
     async def check_page(self, page):
-        body = await page.locator("body").inner_text()
-        if "/sorry/" in page.url or re.search(r"unusual traffic|verify you are human|not a robot", body, re.I):
-            raise ScraperError("Google Jobs requires a traffic challenge; try again later with a healthy proxy", 503)
+        await self.reject_challenge(page)
         # Reject cookies through the normal page control when Google presents consent.
         reject = page.get_by_role("button", name=re.compile("Reject all", re.I))
         if await reject.count() and await reject.first.is_visible():

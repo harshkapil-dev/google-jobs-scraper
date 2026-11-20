@@ -143,7 +143,7 @@ async def execute(job_id):
                 if error.status == 503 and "storage" in str(error).lower():
                     # Keep durable active state resumable if the storage connection drops.
                     return
-                job.update(status="failed", error=str(error))
+                job.update(status="failed", error=str(error), error_status=error.status)
             except asyncio.CancelledError:
                 # A rolling restart leaves persisted pages and a resumable active job.
                 log("interrupted", job_id)
@@ -176,6 +176,7 @@ async def start(request):
     if previous and previous["fingerprint"] != fingerprint:
         raise HTTPException(409, "Request identity was already used with different parameters")
     if not previous:
+        collector.breaker.check()
         if len(tasks) >= MAX_PENDING:
             raise ScraperError("Google Jobs worker capacity is currently full", 429)
         await store.create(
@@ -205,9 +206,7 @@ def health():
 
 @app.get("/ready", dependencies=[Depends(authenticate)])
 def ready():
-    from browser import proxy_configuration
-
-    proxy_configuration()
+    collector.ready()
     store.ready()
     return {"ready": True}
 
@@ -229,7 +228,7 @@ async def scrape_sync(request: Request):
     except TimeoutError:
         raise ScraperError("Google Jobs search is still running; use the job status endpoint", 504) from None
     if job["status"] != "done":
-        raise ScraperError(job.get("error") or "Google Jobs search failed")
+        raise ScraperError(job.get("error") or "Google Jobs search failed", job.get("error_status", 502))
     return {"job_id": job_id, "status": "done", "total": len(job["results"]), "results": job["results"]}
 
 

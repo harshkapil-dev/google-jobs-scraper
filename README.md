@@ -1,6 +1,6 @@
 # Google Jobs Scraper for Pulldata
 
-Self-hosted Chromium worker supporting authenticated rotating server proxies and compatible residential gateways. Catalog category: **Jobs**. Slug: `google-jobs-scraper`. No search-data API provider or subscription is required.
+Self-hosted Chromium worker with an optional page source from Pulldata’s own Railway SERP service. Catalog category: **Jobs**. Slug: `google-jobs-scraper`. No third-party search-data subscription is introduced.
 
 **Release status: development worker deployed, catalog disabled.** Live Google Jobs collection has not passed. A current server-proxy test on 23 October reached Google’s traffic-challenge page and returned no listings. Current network probes reached Google's traffic challenge or timed out through the configured proxy. Browser parser tests use authored deterministic markup; they do not establish compatibility with the current live Google layout. The development pipeline must require real rows before enabling the catalog entry; production publication remains gated.
 
@@ -86,7 +86,7 @@ docker run --rm pulldata-google-jobs:local python -m pytest -q
 
 Tests mock unstable upstreams and also exercise extraction in real Chromium against an authored DOM fixture. Docker/Redis verification must additionally cover partial-result persistence through a process restart, result pagination, invalid bounds, idempotency, and cleanup. A genuine live run using `pulldata.input.json` remains mandatory before the development catalog can be enabled or a production release can be approved. The development pipeline must fail its smoke gate when no real rows are returned.
 
-The worker is based on the live Pulldata Python marketplace starter and contract 1.0, read on 22 October 2026. There is no production publication authorization in this task.
+The worker uses the live Pulldata Python marketplace contract 1.0, refreshed on 28 October 2026. The owner authorized production BETA only after a passing real-data development run and the separate production/admin gates.
 
 ## Research notes
 
@@ -117,4 +117,15 @@ No catalog record has been enabled and no development or production deployment h
 
 18 deterministic tests, lint and formatting pass. The Linux container passed PostgreSQL-backed sync/async fixture contracts, pagination, atomic claims, partial-result recovery through a new store instance, stale-owner rejection, terminal-state protection, and expiry. These storage fixtures are not real Google listings. The live proxy-backed probe still returned Google’s traffic-challenge page with zero rows.
 
-The canonical private repository is `futureceptindia/google-jobs-scraper`, with development source on `dev`. Its immutable source passed the remote 18-test suite and Railway build on 23 October. Readiness requires the trusted platform internal authentication header when no optional worker bearer token is configured. The marketplace validator must forward that platform header only to its hosted workers. An authenticated real asynchronous job reached Google but failed with a traffic challenge and zero listings. This infrastructure result does not establish a passing live collection.
+The former `futureceptindia/google-jobs-scraper` remote is unavailable. The accessible source repository is `harshkapil-dev/google-jobs-scraper`. Its development worker passed the remote 18-test suite and Railway build on 23 October. Readiness requires the trusted platform internal authentication header when no optional worker bearer token is configured. The marketplace validator must forward that platform header only to its hosted workers. An authenticated real asynchronous job reached Google but failed with a traffic challenge and zero listings. This infrastructure result does not establish a passing live collection.
+
+
+## Owned SERP page source and challenge circuit
+
+Set `GOOGLE_JOBS_SOURCE=serp` and `GOOGLE_JOBS_SERP_BASE_URL` to the same-environment owned Railway service only when it implements `POST /google-jobs/search`. The platform-provided `INTERNAL_API_SECRET` authenticates that request. Never reuse a production internal secret in development. Browser mode keeps its existing proxy configuration. `/health` remains dependency-free; `/ready` validates the selected source and durable storage without making paid upstream calls.
+
+The page request contains `query`, `location`, `country`, and nullable `page_token`. A successful response must identify `source: "google_jobs"`, return `jobs_results` as a bounded list of actual job records, and supply a nullable `next_page_token`. Records use the existing normalizer’s keys (`job_id`, `title`, `company_name`, `description`, `apply_options`, `share_link`, and available metadata). The worker applies its original filters, normalization, deduplication, row limits and output schema. It checkpoints the current token during a page and the next token only after completing that page, so a restart neither skips unprocessed rows nor repeats completed pages. Switching source types during an active saved job is rejected.
+
+**The currently deployed organic SERP API does not implement this Jobs endpoint.** Its organic `data` rows must never be presented as job listings. The adapter rejects unsupported endpoints, incompatible envelopes and malformed pages. This path is implemented and tested with deterministic pages; it is not a claim that live Google Jobs now works through the owned service. The 28 October probe reached only a JavaScript shell over HTTP; the same owned proxy through Trawl reached Google’s traffic challenge with zero jobs. Publication remains blocked.
+
+A challenge is a terminal upstream restriction, including when Google returns HTTP 429 or 5xx. The worker does not retry or solve it. A per-process five-minute circuit then rejects new work and readiness requests before storage/upstream work. The first real request after cooldown is the sole recovery probe; there is no timer, heartbeat, background request or idle database query. Run one process/replica; the circuit is intentionally process-scoped and is not a distributed rate limiter. The owned API must return `code: "traffic_challenge"` for a challenged page, with no job rows. API authentication/validation failures, redirects and incompatible organic results are not retried; only bounded connection/transient-status retries are permitted.
