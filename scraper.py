@@ -168,15 +168,20 @@ class GoogleJobsScraper:
 
     def source_kind(self):
         kind = "serp" if self.source is not None else os.getenv("GOOGLE_JOBS_SOURCE", "browser")
-        if kind not in {"browser", "serp"}:
-            raise ScraperError("Google Jobs source must be browser or serp", 503)
+        if kind not in {"browser", "serp", "trawl"}:
+            raise ScraperError("Google Jobs source must be browser, serp, or trawl", 503)
         return kind
 
     def ready(self):
-        if self.source_kind() == "serp":
+        kind = self.source_kind()
+        if kind == "serp":
             from serp_source import OwnedSerpSource
 
             (self.source or OwnedSerpSource()).ready()
+        elif kind == "trawl":
+            from trawl_source import TrawlJobsSource
+
+            (self.source or TrawlJobsSource()).ready()
         else:
             from browser import proxy_configuration
 
@@ -184,8 +189,9 @@ class GoogleJobsScraper:
         self.breaker.check()
 
     async def collect(self, payload: ScrapeInput, state=None, checkpoint=None):
-        if self.source_kind() == "serp":
-            return await self.collect_api(payload, state, checkpoint)
+        kind = self.source_kind()
+        if kind in {"serp", "trawl"}:
+            return await self.collect_api(payload, state, checkpoint, kind=kind)
         from browser import GoogleJobsBrowser
 
         transport = self.browser or GoogleJobsBrowser()
@@ -263,16 +269,23 @@ class GoogleJobsScraper:
             self.breaker.release()
         return rows
 
-    async def collect_api(self, payload, state=None, checkpoint=None):
-        from serp_source import OwnedSerpSource
+    async def collect_api(self, payload, state=None, checkpoint=None, *, kind="serp"):
+        if self.source is not None:
+            source = self.source
+        elif kind == "trawl":
+            from trawl_source import TrawlJobsSource
 
-        source = self.source or OwnedSerpSource()
+            source = TrawlJobsSource()
+        else:
+            from serp_source import OwnedSerpSource
+
+            source = OwnedSerpSource()
         state = state or {}
         rows = list(state.get("results", []))[: payload.max_total_results]
         if state.get("exhausted") or len(rows) >= payload.max_total_results:
             return rows
         if (
-            state.get("source_kind") not in {None, "serp"}
+            state.get("source_kind") not in {None, kind}
             or (state.get("results") or state.get("processed_ids") or state.get("page_count"))
             and state.get("source_kind") is None
         ):
@@ -301,7 +314,7 @@ class GoogleJobsScraper:
                                     "page_in_progress": in_progress,
                                     "page_token": cursor,
                                     "page_token_hashes": sorted(token_hashes),
-                                    "source_kind": "serp",
+                                    "source_kind": kind,
                                     "exhausted": exhausted,
                                 }
                             )

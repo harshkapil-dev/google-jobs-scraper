@@ -32,13 +32,18 @@ PLATFORM_FIELDS = {
     "user_id",
     "queue_namespace",
     "callback_url",
+    "limit",
+    "searchQueries",
+    "search_queries",
     "effective_max_total_results",
     "affordable_rows_at_start",
     "affordable_rows_at_dispatch",
     "available_credits_at_start",
     "wallet_balance_cents_at_start",
     "wallet_balance_cents_at_dispatch",
+    "wallet_reserved_cents_at_start",
     "wallet_reserved_cents_at_dispatch",
+    "wallet_unreserved_cents_at_start",
     "wallet_unreserved_cents_at_dispatch",
     "wallet_concurrency_mode",
     "max_leads_per_query",
@@ -100,6 +105,11 @@ async def parse_input(request: Request):
         if not isinstance(data, dict):
             raise ValueError()
         payload = ScrapeInput.model_validate({k: v for k, v in data.items() if k not in PLATFORM_FIELDS})
+        effective_cap = data.get("effective_max_total_results")
+        if effective_cap is not None:
+            if type(effective_cap) is not int or effective_cap < 1:
+                raise ValueError()
+            payload = payload.model_copy(update={"max_total_results": min(payload.max_total_results, effective_cap)})
         identity = data.get("request_id") or data.get("run_id")
         if identity is not None and (not isinstance(identity, str) or len(identity) > 128):
             raise ValueError()

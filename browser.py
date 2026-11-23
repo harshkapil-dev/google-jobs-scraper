@@ -12,8 +12,19 @@ from playwright.async_api import Error as BrowserError, TimeoutError as BrowserT
 
 from scraper import ScraperError, TrafficChallengeError
 
-CARD_SELECTOR = '.MQUd2b, .gws-plugins-horizon-jobs__li-ed, [data-job-id]:not([data-job-detail]):not([role="dialog"])'
+CARD_SELECTOR = '.MQUd2b, .gws-plugins-horizon-jobs__li-ed, .iFjolb, [data-job-id]:not([data-job-detail]):not([role="dialog"]), [data-htidocid]:not([data-job-detail]):not([role="dialog"])'
 DESCRIPTION_SELECTOR = '.NgUYpe, .HBvzbc, [data-attrid="description"], [data-job-description]'
+ALLOWED_GOOGLE_HOSTS = {
+    "www.google.com",
+    "google.com",
+    "consent.google.com",
+    "www.google.co.uk",
+    "www.google.ca",
+    "www.google.com.au",
+    "www.google.de",
+    "www.google.fr",
+    "www.google.co.in",
+}
 DETAIL_SNAPSHOT = r"""({expected, excluded}) => {
   const visible = node => !!(node.offsetWidth || node.offsetHeight || node.getClientRects().length);
   const norm = value => (value || '').replace(/\s+/g, ' ').trim().toLowerCase();
@@ -102,15 +113,13 @@ def google_search_url(payload):
 def allowed_request(url):
     try:
         parsed = urlsplit(url)
-        host = parsed.hostname or ""
+        host = (parsed.hostname or "").lower()
         return (
             parsed.scheme == "https"
             and parsed.port in {None, 443}
             and not parsed.username
             and not parsed.password
-            and (
-                host in {"www.google.com", "google.com", "consent.google.com"} or host.endswith((".gstatic.com", ".googleusercontent.com"))
-            )
+            and (host in ALLOWED_GOOGLE_HOSTS or host.endswith((".gstatic.com", ".googleusercontent.com")))
         )
     except ValueError:
         return False
@@ -129,7 +138,12 @@ class GoogleJobsBrowser:
             browser = None
             context = None
             try:
-                browser = await playwright.chromium.launch(headless=True, proxy=proxy_configuration(session_id), timeout=20000)
+                browser = await playwright.chromium.launch(
+                    headless=True,
+                    proxy=proxy_configuration(session_id),
+                    timeout=20000,
+                    args=["--disable-blink-features=AutomationControlled"],
+                )
                 context = await browser.new_context(locale="en-US", viewport={"width": 1440, "height": 1000}, service_workers="block")
 
                 async def route(request_route):

@@ -72,6 +72,7 @@ def environment(monkeypatch):
         "GOOGLE_JOBS_PROXY_SESSION_MODE",
         "GOOGLE_JOBS_SOURCE",
         "GOOGLE_JOBS_SERP_BASE_URL",
+        "GOOGLE_JOBS_TRAWL_BASE_URL",
     ]:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("SCRAPER_QUEUE_NAMESPACE", "google-jobs-local-tests")
@@ -172,15 +173,23 @@ def test_idempotent_request_identity_and_platform_envelope():
             "max_total_results": 2,
             "request_id": str(uuid4()),
             "callback_url": "http://169.254.169.254/",
+            "limit": 2,
+            "searchQueries": ["engineer"],
+            "search_queries": ["engineer"],
+            "effective_max_total_results": 1,
             "wallet_balance_cents_at_start": "100",
+            "wallet_reserved_cents_at_start": "10",
+            "wallet_unreserved_cents_at_start": "90",
             "max_leads_per_query": 0,
             "scrape_emails": "no",
         }
         first = client.post("/scrape-sync", json=payload).json()
+        assert first["total"] == 1
         second = client.post("/scrape-sync", json=payload).json()
         assert first == second
         assert worker.collector.browser.calls == 1
         assert client.post("/scrape-sync", json={**payload, "query": "different"}).status_code == 409
+        assert client.post("/scrape-sync", json={"query": "engineer", "effective_max_total_results": 0}).status_code == 422
 
 
 def test_pagination_deduplication_partial_results_and_restart():
@@ -365,6 +374,8 @@ def test_proxy_and_network_target_validation(monkeypatch):
     ]:
         assert not allowed_request(url)
     assert allowed_request("https://www.google.com/search?q=react")
+    assert allowed_request("https://www.google.co.uk/search?q=react")
+    assert allowed_request("https://www.google.de/search?q=react")
     assert public_url("https://www.google.com/search#vhid=docid/job123").endswith("#vhid=docid/job123")
     for url in ["not-a-url", "socks5://proxy.example.com:80", "http://user:secret@proxy.example.com:80/path"]:
         monkeypatch.setenv("GOOGLE_JOBS_PROXY_URL", url)
